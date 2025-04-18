@@ -21,6 +21,8 @@ from pydantic import BaseModel
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
 from fastapi import HTTPException, status, Security
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
+import torch.nn.functional as F
 
 # Models for authentication
 class Token(BaseModel):
@@ -72,6 +74,14 @@ SUPABASE_KEY = os.getenv("SUPABASE_ANON_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXV
 @app.on_event("startup")
 def load_model():
     app.state.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+    app.state.gibberish_model = AutoModelForSequenceClassification.from_pretrained(
+        "madhurjindal/autonlp-Gibberish-Detector-492513457", 
+        token=False
+    )
+    app.state.gibberish_tokenizer = AutoTokenizer.from_pretrained(
+        "madhurjindal/autonlp-Gibberish-Detector-492513457",
+        token=False
+    )
 
 # Dependencies for clients
 def get_orthanc_client():
@@ -455,50 +465,51 @@ def view_dicom_image(
 
 @app.post("/reports")
 def save_generated_report(report_data: dict):
-    """Save a report only if similarity ≥ 0.7 with existing reports"""
+    """Save a report after gibberish validation"""
     try:
         report_content = report_data.get("content")
         if not report_content:
             raise HTTPException(status_code=400, detail="Report content required")
 
-        # Generate embedding
+        # --- Gibberish Detection ---
+        inputs = app.state.gibberish_tokenizer(
+            report_content, 
+            return_tensors="pt", 
+            truncation=True, 
+            max_length=512  
+        )
+        
+        with torch.no_grad():
+            outputs = app.state.gibberish_model(**inputs)
+        
+        probs = F.softmax(outputs.logits, dim=-1)
+        predicted_index = torch.argmax(probs, dim=1).item()
+        predicted_label = app.state.gibberish_model.config.id2label[predicted_index]
+        
+        # Check if the text is classified as gibberish (assuming label 0 is "not gibberish")
+        if probs[0][0] < 0.5:  # If "not gibberish" probability < 50%
+            raise HTTPException(
+                status_code=400,
+                detail=f"Report contains low-quality text (classified as: {predicted_label}, confidence: {probs[0][predicted_index]:.2f})"
+            )
+        
+        # --- Save to Supabase (original logic without similarity check) ---
         embedding = app.state.embedding_model.encode(report_content)
         embedding_tensor = torch.tensor(embedding).float()
         normalized_embedding = embedding_tensor / torch.norm(embedding_tensor, p=2)
 
-        # Check similarity with existing reports
-        similar_docs = get_similar_documents(
-            query=report_content,
-            model=app.state.embedding_model,
-            supabase_url=SUPABASE_URL,
-            supabase_key=SUPABASE_KEY,
-            top_k=1
-        )
-
-        # Determine maximum similarity
-        max_similarity = 0
-        if isinstance(similar_docs, list):
-            max_similarity = max((doc.get("similarity", 0) for doc in similar_docs), default=0)
-        elif isinstance(similar_docs, dict):
-            max_similarity = similar_docs.get("similarity", 0)
-
-        if max_similarity < 0.9:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Report too unique (similarity: {max_similarity:.2f} < 0.9)"
-            )
-
-        # Save to Supabase
         data = {
             "content": report_content,
             "embedding": normalized_embedding.detach().cpu().tolist()
         }
+        
         headers = {
             "apikey": SUPABASE_KEY,
             "Authorization": f"Bearer {SUPABASE_KEY}",
             "Content-Type": "application/json",
             "Prefer": "return=representation"
         }
+        
         response = requests.post(
             f"{SUPABASE_URL}/rest/v1/db1",
             headers=headers,
@@ -510,20 +521,17 @@ def save_generated_report(report_data: dict):
         if response.content:
             try:
                 result = response.json()
-                if isinstance(result, dict):
-                    result_id = result.get("id")
+                result_id = result.get("id") if isinstance(result, dict) else None
             except JSONDecodeError:
                 pass
 
-        return {"status": "success", "id": result_id}
+        return {"status": "success", "message": "Report saved successfully"}
 
     except HTTPException as he:
         raise he
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
-
-
 def process_dicom(dicom_content: bytes):
     """Common function to process DICOM data and generate report with RAG"""
     try:
