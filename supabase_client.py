@@ -93,3 +93,36 @@ class SupabaseClient:
         except Exception as e:
             traceback.print_exc()
             return []
+    def get_doctor_by_id(self, doctor_id: str) -> Optional[Dict]:
+        """Get a doctor by ID"""
+        try:
+            response = requests.get(
+                f"{self.supabase_url}/rest/v1/doctors",
+                headers=self.headers,
+                params={"id": f"eq.{doctor_id}"}
+            )
+            response.raise_for_status()
+            doctors = response.json()
+
+            if doctors and len(doctors) > 0:
+                return doctors[0]
+            return None
+        except Exception as e:
+            traceback.print_exc()
+            return None
+    # def get_doctor_info(self, doctor_id: str) -> Optional[Dict]:
+    #     """Get a doctor by ID"""
+    #     try:
+    #         response = requests.get(
+    #             f"{self.supabase_url}/rest/v1/doctors",
+    #             headers=self.headers,
+    #             params={"id": f"eq.{doctor_id}"}
+    #         )
+    #         response.raise_for_status()
+    #         doctors = response.json()
+    #         if doctors and len(doctors) > 0:
+    #             return doctors[0]
+    #         return None
+    #     except Exception as e:
+    #         traceback.print_exc()
+    #         return None
