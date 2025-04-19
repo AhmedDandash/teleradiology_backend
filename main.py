@@ -613,7 +613,6 @@ async def upload_dicom(
     supabase_client: SupabaseClient = Depends(get_supabase_client),
     orthanc_client: OrthancClient = Depends(get_orthanc_client)
 ):
-
     # Read and parse DICOM
     try:
         contents = await dicom_file.read()
@@ -630,12 +629,23 @@ async def upload_dicom(
     # Upload DICOM to Orthanc
     try:
         # Upload the file to Orthanc
-        upload_response = orthanc_client.upload_dicom(contents)
+        # upload_response = orthanc_client.upload_dicom(contents)
         
-        # Get the IDs from the response
-        instance_id = upload_response.get("ID")
-        parent_ids = upload_response.get("ParentPatient")
-        orthanc_patient_id = parent_ids[0] if parent_ids else None
+        # # Get the IDs from the response
+        # instance_id = upload_response.get("ID")
+        # parent_ids = upload_response.get("ParentPatient")
+        # orthanc_patient_id = parent_ids[0] if parent_ids else None
+        orthanc_response = requests.post(
+            f"{ORTHANC_URL}/instances",
+            auth=(ORTHANC_USERNAME, ORTHANC_PASSWORD),
+            headers={"Content-Type": "application/dicom"},
+            data=contents
+        )
+
+        if orthanc_response.status_code not in [200, 201]:
+            raise HTTPException(status_code=500, detail=f"Failed to upload to Orthanc: {orthanc_response.text}")
+
+        orthanc_instance_id = orthanc_response.json().get("ID")
         
         # Check if patient exists in Supabase
         patient_info = supabase_client.get_patient_basic_info(patient_id)
@@ -665,8 +675,8 @@ async def upload_dicom(
             
         return {
             "message": f"DICOM file uploaded successfully",
-            "orthanc_instance_id": instance_id,
-            "orthanc_patient_id": orthanc_patient_id,
+            "orthanc_instance_id": orthanc_instance_id,
+            # "orthanc_patient_id": orthanc_patient_id,
             "patient_info": {
                 "id": patient_id,
                 "name": patient_name,

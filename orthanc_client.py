@@ -84,7 +84,7 @@ class OrthancClient:
         """Upload a DICOM file to Orthanc"""
         response = requests.post(
             f"{self.orthanc_url}/instances",
-            auth=(self.username, self.password),
+            # auth=(self.username, self.password),
             data=dicom_data
         )
         response.raise_for_status()
