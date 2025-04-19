@@ -607,8 +607,77 @@ def save_generated_report(report_data: dict):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
     
-    
-    
+@app.post("/upload-dicom/")
+async def upload_dicom(
+    dicom_file: UploadFile = File(...),
+    supabase_client: SupabaseClient = Depends(get_supabase_client),
+    orthanc_client: OrthancClient = Depends(get_orthanc_client)
+):
+
+    # Read and parse DICOM
+    try:
+        contents = await dicom_file.read()
+        dcm = pydicom.dcmread(io.BytesIO(contents))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid DICOM file: {e}")
+
+    # Extract metadata
+    patient_id = str(dcm.get("PatientID", "unknown"))
+    patient_name = str(dcm.get("PatientName", "unknown"))
+    modality = str(dcm.get("Modality", "N/A"))
+    study_date = str(dcm.get("StudyDate", "N/A"))
+
+    # Upload DICOM to Orthanc
+    try:
+        # Upload the file to Orthanc
+        upload_response = orthanc_client.upload_dicom(contents)
+        
+        # Get the IDs from the response
+        instance_id = upload_response.get("ID")
+        parent_ids = upload_response.get("ParentPatient")
+        orthanc_patient_id = parent_ids[0] if parent_ids else None
+        
+        # Check if patient exists in Supabase
+        patient_info = supabase_client.get_patient_basic_info(patient_id)
+        
+        if not patient_info:
+            # Insert into Supabase if new patient
+            headers = {
+                "apikey": SUPABASE_KEY,
+                "Authorization": f"Bearer {SUPABASE_KEY}",
+                "Content-Type": "application/json",
+                "Prefer": "return=representation"
+            }
+            
+            data = {
+                "dicom_id": patient_id,
+                "contact_info": None,
+                "insurance": None,
+                "additional_notes": None
+            }
+            
+            response = requests.post(
+                f"{SUPABASE_URL}/rest/v1/patients",
+                headers=headers,
+                json=data
+            )
+            response.raise_for_status()
+            
+        return {
+            "message": f"DICOM file uploaded successfully",
+            "orthanc_instance_id": instance_id,
+            "orthanc_patient_id": orthanc_patient_id,
+            "patient_info": {
+                "id": patient_id,
+                "name": patient_name,
+                "modality": modality,
+                "study_date": study_date
+            }
+        }
+
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error uploading DICOM: {str(e)}")
     
     
 def process_dicom(dicom_content: bytes):
@@ -689,67 +758,6 @@ def process_dicom(dicom_content: bytes):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
-
-
-
-
-
-# Protected DICOM upload
-@app.post("/upload-dicom/")
-async def upload_dicom(
-    dicom_file: UploadFile = File(...),
-    authorization: str = Header(...)
-):
-    # Token verification
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing Bearer token")
-    token = authorization.split(" ")[1]
-    verify_token(token)
-
-    # Read and parse DICOM
-    try:
-        contents = await dicom_file.read()
-        dcm = pydicom.dcmread(io.BytesIO(contents))
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid DICOM file: {e}")
-
-    # Extract metadata
-    patient_id = str(dcm.get("PatientID", "unknown"))
-    patient_name = str(dcm.get("PatientName", "unknown"))
-    modality = str(dcm.get("Modality", "N/A"))
-    study_date = str(dcm.get("StudyDate", "N/A"))
-    supabase_client: SupabaseClient = Depends(get_supabase_client)
-
-
-    # Check if patient exists
-    try:
-        existing = supabase_client.table("patients").select("dicom_id").eq("dicom_id", patient_id).execute()
-        if existing.data:
-            return {
-                "message": f"Patient {patient_id} already exists. Skipping.",
-                "PatientName": patient_name,
-                "Modality": modality,
-                "StudyDate": study_date
-            }
-
-        # Insert into Supabase
-        data = {
-            "dicom_id": patient_id,
-            "contact_info": None,
-            "insurance": None,
-            "additional_notes": None
-        }
-        supabase_client.table("patients").insert(data).execute()
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Supabase error: {e}")
-
-    return {
-        "message": f"Inserted patient {patient_id}",
-        "PatientName": patient_name,
-        "Modality": modality,
-        "StudyDate": study_date
-    }
 
 if __name__ == "__main__":
     import uvicorn
