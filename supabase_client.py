@@ -62,9 +62,23 @@ class SupabaseClient:
             traceback.print_exc()
             return None
     
-    def assign_patient_to_doctor(self, doctor_id: str, patient_dicom_id: str) -> bool:
+    def assign_patient_to_doctor(self, doctor_id: str, patient_dicom_id: str) -> tuple[bool, str]:
         """Associate a patient with a doctor"""
         try:
+            # First, check if patient is already assigned to any doctor
+            response = requests.get(
+                f"{self.supabase_url}/rest/v1/patient_doctor_mapping",
+                headers=self.headers,
+                params={"patient_dicom_id": f"eq.{patient_dicom_id}"}
+            )
+            response.raise_for_status()
+            existing_assignments = response.json()
+            
+            # If patient is already assigned to a doctor, return False with message
+            if existing_assignments and len(existing_assignments) > 0:
+                return False, "Patient is already assigned to a doctor"
+            
+            # If not assigned, proceed with assignment
             data = {
                 "doctor_id": doctor_id,
                 "patient_dicom_id": patient_dicom_id
@@ -76,10 +90,10 @@ class SupabaseClient:
                 json=data
             )
             response.raise_for_status()
-            return True
+            return True, "Patient successfully assigned to doctor"
         except Exception as e:
             traceback.print_exc()
-            return False
+            return False, f"Error: {str(e)}"
 
     def get_all_doctors(self) -> List[Dict]:
         """Get list of all doctors"""
