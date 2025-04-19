@@ -239,12 +239,13 @@ async def assign_patient_to_doctor(
     supabase_client: SupabaseClient = Depends(get_supabase_client)
 ):
     """Assign a patient to a doctor (admin endpoint)"""
-    if supabase_client.assign_patient_to_doctor(doctor_id, patient_dicom_id):
-        return {"status": "success", "message": "Patient assigned to doctor"}
+    success, message = supabase_client.assign_patient_to_doctor(doctor_id, patient_dicom_id)
+    if success:
+        return {"status": "success", "message": message}
     else:
         raise HTTPException(
-            status_code=500,
-            detail="Failed to assign patient to doctor"
+            status_code=400 if "already assigned" in message else 500,
+            detail=message
         )
 
 # Add doctor-specific version of existing endpoints
