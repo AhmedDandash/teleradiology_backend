@@ -80,5 +80,13 @@ class OrthancClient:
         )
         response.raise_for_status()
         return response.json()
-    
+    def upload_dicom(self, dicom_data):
+        """Upload a DICOM file to Orthanc"""
+        response = requests.post(
+            f"{self.orthanc_url}/instances",
+            auth=(self.username, self.password),
+            data=dicom_data
+        )
+        response.raise_for_status()
+        return response.json()
    
