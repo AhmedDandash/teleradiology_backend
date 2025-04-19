@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from models import generate_report
 from orthanc_client import OrthancClient
-from supabase_client import SupabaseClient  # New import
+from supabase_client import SupabaseClient
 import pydicom
 import io
 from PIL import Image
@@ -212,6 +212,24 @@ async def get_doctor_patients(
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+    
+@app.get("/doctor")
+async def get_doctor_info(
+    current_doctor : Doctor=Depends(get_current_doctor),
+    supabase_client: SupabaseClient = Depends(get_supabase_client)
+):
+    """Get the logged-in doctor's information"""
+    doctor = supabase_client.get_doctor_by_id(current_doctor.id)
+    if not doctor:
+        raise HTTPException(status_code=404, detail="Doctor not found")
+    return doctor
+@app.get("/admin/doctors")
+async def get_all_doctors(
+    supabase_client: SupabaseClient = Depends(get_supabase_client)
+):
+    """Get all doctors (admin endpoint)"""
+    doctors = supabase_client.get_all_doctors()
+    return {"doctors": doctors}
 
 # Endpoint to map patient to doctor
 @app.post("/admin/assign-patient")
