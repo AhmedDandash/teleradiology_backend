@@ -1,6 +1,7 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException, Query, Depends
+from fastapi import FastAPI, File, Header, UploadFile, HTTPException, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+import supabase
 from models import generate_report
 from orthanc_client import OrthancClient
 from supabase_client import SupabaseClient
@@ -133,6 +134,15 @@ async def get_current_doctor(token: str = Security(oauth2_scheme)):
     # For now, we'll just return the ID
     return Doctor(id=token_data.doctor_id, email="", name="", specialty="")
 
+def verify_token(token: str):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload  # Return decoded payload (e.g., {"sub": "username"})
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token"
+        )
 async def get_current_admin(token: str = Security(oauth2_scheme)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -596,6 +606,11 @@ def save_generated_report(report_data: dict):
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+    
+    
+    
+    
+    
 def process_dicom(dicom_content: bytes):
     """Common function to process DICOM data and generate report with RAG"""
     try:
@@ -673,6 +688,68 @@ def process_dicom(dicom_content: bytes):
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
+
+
+# Protected DICOM upload
+@app.post("/upload-dicom/")
+async def upload_dicom(
+    dicom_file: UploadFile = File(...),
+    authorization: str = Header(...)
+):
+    # Token verification
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing Bearer token")
+    token = authorization.split(" ")[1]
+    verify_token(token)
+
+    # Read and parse DICOM
+    try:
+        contents = await dicom_file.read()
+        dcm = pydicom.dcmread(io.BytesIO(contents))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid DICOM file: {e}")
+
+    # Extract metadata
+    patient_id = str(dcm.get("PatientID", "unknown"))
+    patient_name = str(dcm.get("PatientName", "unknown"))
+    modality = str(dcm.get("Modality", "N/A"))
+    study_date = str(dcm.get("StudyDate", "N/A"))
+    supabase_client: SupabaseClient = Depends(get_supabase_client)
+
+
+    # Check if patient exists
+    try:
+        existing = supabase_client.table("patients").select("dicom_id").eq("dicom_id", patient_id).execute()
+        if existing.data:
+            return {
+                "message": f"Patient {patient_id} already exists. Skipping.",
+                "PatientName": patient_name,
+                "Modality": modality,
+                "StudyDate": study_date
+            }
+
+        # Insert into Supabase
+        data = {
+            "dicom_id": patient_id,
+            "contact_info": None,
+            "insurance": None,
+            "additional_notes": None
+        }
+        supabase_client.table("patients").insert(data).execute()
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Supabase error: {e}")
+
+    return {
+        "message": f"Inserted patient {patient_id}",
+        "PatientName": patient_name,
+        "Modality": modality,
+        "StudyDate": study_date
+    }
 
 if __name__ == "__main__":
     import uvicorn
