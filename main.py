@@ -43,6 +43,9 @@ class Doctor(BaseModel):
 
 class DoctorInDB(Doctor):
     hashed_password: str
+class AdminLoginRequest(BaseModel):
+    username: str
+    password: str
 
 # Auth settings
 SECRET_KEY = "YOUR_SECRET_KEY_HERE"  # In production, use a proper secret key
@@ -129,6 +132,25 @@ async def get_current_doctor(token: str = Security(oauth2_scheme)):
     # Here you would typically fetch the doctor from your database
     # For now, we'll just return the ID
     return Doctor(id=token_data.doctor_id, email="", name="", specialty="")
+
+async def get_current_admin(token: str = Security(oauth2_scheme)):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id: str = payload.get("sub")
+        role: str = payload.get("role")
+        
+        if user_id is None or role != "admin":
+            raise credentials_exception
+            
+        return {"id": user_id, "role": role}
+    except JWTError:
+        raise credentials_exception
 
 # Token endpoint for login
 @app.post("/token", response_model=Token)
@@ -223,6 +245,29 @@ async def get_doctor_info(
     if not doctor:
         raise HTTPException(status_code=404, detail="Doctor not found")
     return doctor
+
+@app.post("/admin/login", response_model=Token)
+async def admin_login(
+    login_data: AdminLoginRequest,
+    supabase_client: SupabaseClient = Depends(get_supabase_client)
+):
+    """Login endpoint for administrators"""
+    admin = supabase_client.get_admin_by_credentials(login_data.username, login_data.password)
+    if not admin:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": admin["id"], "role": "admin"}, 
+        expires_delta=access_token_expires
+    )
+    
+    return {"access_token": access_token, "token_type": "bearer"}
+
 @app.get("/admin/doctors")
 async def get_all_doctors(
     supabase_client: SupabaseClient = Depends(get_supabase_client)
