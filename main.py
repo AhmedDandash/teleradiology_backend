@@ -24,6 +24,7 @@ from datetime import datetime, timedelta
 from fastapi import HTTPException, status, Security
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 import torch.nn.functional as F
+from chatbot import update_case, get_doctor_answer
 
 # Models for authentication
 class Token(BaseModel):
@@ -47,6 +48,14 @@ class DoctorInDB(Doctor):
 class AdminLoginRequest(BaseModel):
     username: str
     password: str
+
+
+class QuestionRequest(BaseModel):
+    question: str
+
+class AnswerResponse(BaseModel):
+    answer: str
+
 
 # Auth settings
 SECRET_KEY = "YOUR_SECRET_KEY_HERE"  # In production, use a proper secret key
@@ -481,6 +490,8 @@ def generate_orthanc_report(
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+    
+
 
 @app.get("/orthanc/view-dicom")
 def view_dicom_image(
@@ -767,6 +778,64 @@ def process_dicom(dicom_content: bytes):
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/orthanc/generate-report-and-update")
+def generate_report_and_update_chatbot(
+    instance_id: str,
+    orthanc_client: OrthancClient = Depends(get_orthanc_client)
+):
+    """Generate report from an instance in Orthanc"""
+    try:
+        # Get DICOM file from Orthanc
+        dicom_content = orthanc_client.get_instance_dicom(instance_id)
+        
+        # Get instance metadata for additional information
+        try:
+            instance_tags = orthanc_client.get_instance_tags(instance_id)
+        except Exception as tag_error:
+            # If we can't get tags, continue without them
+            print(f"Error getting instance tags: {tag_error}")
+            instance_tags = {}
+        
+        # Process the DICOM file and generate report
+        result = process_dicom(dicom_content)
+        
+        findings = result["generated_report"]["findings"]
+        impression = result["generated_report"]["impression"]
+        retrieved_reports = result.get("retrieved_reports", [])
+
+        # Step 2: Update chatbot context dynamically
+        update_case(
+            findings_text=f"{findings} {impression}",
+            retrieved_report=retrieved_reports
+        )
+
+        
+        # Add instance metadata to the response
+        result["instance_metadata"] = {
+            "id": instance_id,
+            "patient_name": instance_tags.get("PatientName", ""),
+            "patient_id": instance_tags.get("PatientID", ""),
+            "study_description": instance_tags.get("StudyDescription", ""),
+            "series_description": instance_tags.get("SeriesDescription", ""),
+            "age": instance_tags.get("PatientAge", ""),
+            "sex": instance_tags.get("PatientSex", ""),
+            "patient_birth_date": instance_tags.get("PatientBirthDate", ""),
+            "patientweight": instance_tags.get("PatientWeight", ""),
+        }
+        
+        return result
+        
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/ask", response_model=AnswerResponse)
+def ask_doctor_question(request: QuestionRequest):
+    doctor_question = request.question
+    answer = get_doctor_answer(doctor_question)
+    return AnswerResponse(answer=answer)
 
 
 if __name__ == "__main__":
