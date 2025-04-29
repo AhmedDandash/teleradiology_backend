@@ -1,5 +1,3 @@
-# chatbot.py
-
 from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 import torch
 import gc
@@ -9,9 +7,7 @@ current_findings_text = None
 current_retrieved_report = None
 
 # Use a smaller but reliable model that works well on CPU
-DEFAULT_MODEL = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"  # Fallback to original if needed
-MEDICAL_MODEL = "TheBloke/medalpaca-13B-GGUF"  # Alternative medical model
-
+DEFAULT_MODEL = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"  
 # Global model variables - only initialize once
 pipe = None
 tokenizer = None
