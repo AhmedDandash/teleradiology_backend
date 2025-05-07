@@ -24,7 +24,7 @@ from datetime import datetime, timedelta
 from fastapi import HTTPException, status, Security
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 import torch.nn.functional as F
-from chatbot import update_case, get_doctor_answer
+from newchatbot import update_case, get_doctor_answer
 
 # Models for authentication
 class Token(BaseModel):
@@ -58,9 +58,9 @@ class AnswerResponse(BaseModel):
 
 
 # Auth settings
-SECRET_KEY = "YOUR_SECRET_KEY_HERE"  # In production, use a proper secret key
+SECRET_KEY = "YOUR_SECRET_KEY_HERE"  
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ACCESS_TOKEN_EXPIRE_MINUTES = 180  # 3 hours
 
 # Create OAuth2 scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
@@ -238,9 +238,8 @@ async def get_doctor_patients(
                         "gender": tags.get("PatientSex", "U"),
                         "birth_date": tags.get("PatientBirthDate", ""),
                         "study_count": len(patient_data.get('Studies', [])),
-                        "last_update": patient_data.get('LastUpdate', ""),
+                        "last_update": tags.get('LastUpdate', ""),
                         "patient_age": tags.get("PatientAge", ""),
-                        # Additional fields from Supabase if available
                         "contact_info": supabase_info.get("contact_info") if supabase_info else None,
                         "insurance": supabase_info.get("insurance") if supabase_info else None,
                         "additional_notes": supabase_info.get("additional_notes") if supabase_info else None
