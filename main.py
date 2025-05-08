@@ -25,6 +25,8 @@ from fastapi import HTTPException, status, Security
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 import torch.nn.functional as F
 from newchatbot import update_case, get_doctor_answer
+from datetime import datetime
+
 
 # Models for authentication
 class Token(BaseModel):
@@ -381,14 +383,27 @@ def list_patients(
             try:
                 patient_data = orthanc_client.get_patient_info(pid)
                 tags = patient_data.get('MainDicomTags', {})
+                
+                # Calculate patient age
+                birth_date_str = tags.get("PatientBirthDate", "")
+                try:
+                    # Expecting format YYYYMMDD, e.g., 19810508
+                    birth_date = datetime.strptime(birth_date_str, "%Y%m%d")
+                    today = datetime.today()
+                    age = today.year - birth_date.year - (
+                        (today.month, today.day) < (birth_date.month, birth_date.day)
+                    )
+                except Exception:
+                    age = "Unknown"  # Handle invalid date format
+                
                 detailed_patients.append({
                     "id": pid,
                     "name": tags.get("PatientName", "Unknown"),
                     "gender": tags.get("PatientSex", "U"),
-                    "birth_date": tags.get("PatientBirthDate", ""),
+                    "birth_date": birth_date_str,
                     "study_count": len(patient_data.get('Studies', [])),
                     "last_update": patient_data.get('LastUpdate', ""),
-                    "patient_age": tags.get("PatientAge", ""),
+                    "patient_age": age,
                     "patient_id_dicom": tags.get("PatientID", "")
                 })
             except Exception as e:
