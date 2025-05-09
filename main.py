@@ -835,8 +835,7 @@ def generate_report_and_update_chatbot(
             "series_description": instance_tags.get("SeriesDescription", ""),
             "age": instance_tags.get("PatientAge", ""),
             "sex": instance_tags.get("PatientSex", ""),
-            "patient_birth_date": instance_tags.get("PatientBirthDate", ""),
-            "patientweight": instance_tags.get("PatientWeight", ""),
+            "patient_birth_date": instance_tags.get("PatientBirthDate", "")
         }
         
         return result
