@@ -849,6 +849,57 @@ def ask_doctor_question(request: QuestionRequest):
     doctor_question = request.question
     answer = get_doctor_answer(doctor_question)
     return AnswerResponse(answer=answer)
+@app.get("/orthanc/patient/{patient_id}")
+def get_patient_info(
+    patient_id: str,
+    orthanc_client: OrthancClient = Depends(get_orthanc_client)
+    ):
+    """Get detailed information for a single patient by Orthanc patient ID"""
+    try:
+        patient_data = orthanc_client.get_patient_info(patient_id)
+        tags = patient_data.get('MainDicomTags', {})
+        birth_date_str = tags.get("PatientBirthDate", "")
+        try:
+            birth_date = datetime.strptime(birth_date_str, "%Y%m%d")
+            today = datetime.today()
+            age = today.year - birth_date.year - (
+                (today.month, today.day) < (birth_date.month, birth_date.day)
+            )
+        except Exception:
+            age = "Unknown"
+        return {
+            "id": patient_id,
+            "name": tags.get("PatientName", "Unknown"),
+            "gender": tags.get("PatientSex", "U"),
+            "birth_date": birth_date_str,
+            "study_count": len(patient_data.get('Studies', [])),
+            "last_update": patient_data.get('LastUpdate', ""),
+            "patient_age": age,
+            "patient_id_dicom": tags.get("PatientID", "")
+        }
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+@app.get("/doctor/info-and-patients")
+async def get_doctor_info_and_patients_by_token(
+    current_doctor: Doctor = Depends(get_current_doctor),
+    supabase_client: SupabaseClient = Depends(get_supabase_client)
+):
+    """Get doctor info (id, name, email, specialty) and ONLY the names of their assigned patients"""
+    doctor_id = current_doctor.id
+    doctor = supabase_client.get_doctor_by_id(doctor_id)
+    if not doctor:
+        raise HTTPException(status_code=404, detail="Doctor not found")
+    doctor_patients = supabase_client.get_doctor_patients(doctor_id)
+    doctor_info = {
+        "id": doctor.get("id"),
+        "name": doctor.get("name"),
+        "email": doctor.get("email"),
+        "specialty": doctor.get("specialty")
+    }
+    return {
+        "doctor": doctor_info
+    }
 
 
 if __name__ == "__main__":
