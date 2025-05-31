@@ -14,7 +14,7 @@ def initialize_model():
     
     try:
         # Use the provided API key
-        api_key = os.getenv("OPENROUTER_API_KEY", "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")
+        api_key = os.getenv("OPENROUTER_API_KEY", "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")
         
         # Initialize OpenAI client with OpenRouter base URL
         client = OpenAI(
