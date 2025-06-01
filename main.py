@@ -586,7 +586,7 @@ def save_generated_report(report_data: dict):
         predicted_label = app.state.gibberish_model.config.id2label[predicted_index]
         
         # Check if the text is classified as gibberish (assuming label 0 is "not gibberish")
-        if probs[0][0] < 0.5:  # If "not gibberish" probability < 50%
+        if probs[0][0] < 0.7:  # If "not gibberish" probability < 50%
             raise HTTPException(
                 status_code=400,
                 detail=f"Report contains low-quality text (classified as: {predicted_label}, confidence: {probs[0][predicted_index]:.2f})"
